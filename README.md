@@ -2,7 +2,7 @@
 
 Go client and helpers for Paystack payments.
 
-`github.com/calvin-kimani/gopaystack` provides a small, typed wrapper around the Paystack API surface commonly needed by payment applications: transaction initialization, transaction verification, payment requests, splits, subaccounts, webhook verification, webhook parsing, and payment authorization detail extraction.
+`github.com/calvin-kimani/gopaystack` provides a small, typed wrapper around the Paystack API surface commonly needed by payment applications: transaction initialization, transaction verification, payment requests, refunds, splits, subaccounts, webhook verification, webhook parsing, and payment authorization detail extraction.
 
 Application concepts such as users, invoices, coupons, database transactions, order fulfillment, and business-specific payment policy belong in the application using this module.
 
@@ -23,6 +23,7 @@ import "github.com/calvin-kimani/gopaystack" // imported as package "paystack"
 - Verify webhook signatures using Paystack's HMAC-SHA512 signature.
 - Parse verified webhook payloads.
 - Create and fetch Paystack payment requests.
+- Create, fetch, list, and retry Paystack refunds.
 - Create and manage splits and subaccounts.
 - Extract masked card, mobile-money, and bank authorization details for application metadata.
 - Validate required request fields before network calls.
@@ -178,6 +179,52 @@ Fetch a payment request by ID or request code:
 resp, err := client.GetPaymentRequest("PRQ_xxx")
 ```
 
+## Refunds
+
+Create a refund for a transaction. `Amount` is optional and defaults to the full transaction amount when omitted.
+
+```go
+resp, err := client.CreateRefund(&paystack.RefundRequest{
+    Transaction:  "TXN-8K2M9NXQ",
+    Amount:       10000,
+    Currency:     "KES",
+    CustomerNote: "Refund for cancelled order",
+})
+```
+
+`Transaction` may be a transaction reference or id.
+
+Fetch a refund by ID:
+
+```go
+resp, err := client.GetRefund("12345")
+```
+
+`RefundResponse.Data.Transaction` is a `json.RawMessage`: Paystack returns a full transaction object on create but a bare transaction id on fetch, so unmarshal it into the appropriate type yourself.
+
+List refunds:
+
+```go
+resp, err := client.ListRefunds(&paystack.RefundListOptions{
+    Transaction: "1641",
+    PerPage:     20,
+})
+```
+
+A nil `*RefundListOptions` lists all refunds with Paystack's defaults. List results use `RefundListItem`, which differs from the create/fetch response: its `FullyDeducted` is an integer (`1` means fully deducted) and its timestamps are snake_case.
+
+Retry a refund:
+
+```go
+resp, err := client.RetryRefund("1234567", &paystack.RefundAccountDetails{
+    Currency:      "NGN",
+    AccountNumber: "1234567890",
+    BankID:        "9",
+})
+```
+
+Use this for refunds in a needs-attention state.
+
 ## Errors
 
 The module exposes these common errors:
@@ -190,12 +237,15 @@ HTTP responses with status code 400 or greater are returned as errors containing
 
 ## Security and Validation Notes
 
-- Transaction references, payment request IDs, split IDs, and subaccount IDs are URL path-escaped before request construction.
+- Transaction references, payment request IDs, refund IDs, split IDs, and subaccount IDs are URL path-escaped before request construction.
 - Empty lookup identifiers are rejected before network calls.
 - Transaction initialization rejects nil requests, non-positive amounts, and missing emails.
 - Transaction initialization rejects malformed emails, CRLF email input, invalid currency codes, non-HTTPS callback URLs, and negative transaction charges.
 - Payment request creation rejects nil requests, non-positive amounts, invalid line items, and negative quantities.
 - Payment request creation rejects malformed currency codes.
+- Refund creation rejects nil requests, empty transaction references, negative amounts, and malformed currency codes.
+- Refund retry rejects nil account details and missing currency, account number, or bank ID, and rejects malformed currency codes.
+- Refund listing rejects malformed currency filters before making a network call.
 - Subaccount creation rejects missing required bank/account fields and percentage charges outside `0..100`.
 - Split creation rejects missing names, unsupported split types, missing currencies, empty subaccount lists, empty subaccount codes, and non-positive shares.
 - Webhook verification requires a configured secret key, non-empty body, and non-empty hex signature.

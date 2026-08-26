@@ -37,6 +37,14 @@ func TestLookupMethodsRejectEmptyIDs(t *testing.T) {
 			_, err := client.GetSplit("")
 			return err
 		}},
+		{name: "refund", fn: func() error {
+			_, err := client.GetRefund("")
+			return err
+		}},
+		{name: "refund retry", fn: func() error {
+			_, err := client.RetryRefund("", &RefundAccountDetails{Currency: "NGN", AccountNumber: "1234567890", BankID: "9"})
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
