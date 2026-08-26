@@ -20,6 +20,7 @@ import "github.com/calvin-kimani/gopaystack" // imported as package "paystack"
 
 - Initialize Paystack transactions.
 - Verify transactions by reference.
+- Charge saved (reusable) authorizations.
 - Verify webhook signatures using Paystack's HMAC-SHA512 signature.
 - Parse verified webhook payloads.
 - Create and fetch Paystack payment requests.
@@ -109,6 +110,20 @@ case paystack.TransactionStatusReversed:
 ```
 
 `VerifyTransaction` rejects empty references before making a network call.
+
+### Charge an Authorization
+
+Only authorizations marked reusable can be charged; the authorization code is obtained from a previous transaction (for example, a verified webhook or `VerifyTransaction`).
+
+```go
+resp, err := client.ChargeAuthorization(&paystack.ChargeAuthorizationRequest{
+    Amount:            35247,
+    Email:             "customer@example.com",
+    AuthorizationCode: "AUTH_uh8bcl3zbn",
+})
+```
+
+`resp.Data.Status` and `resp.Data.Reference` carry the transaction outcome.
 
 ## Webhooks
 
@@ -241,6 +256,7 @@ HTTP responses with status code 400 or greater are returned as errors containing
 - Empty lookup identifiers are rejected before network calls.
 - Transaction initialization rejects nil requests, non-positive amounts, and missing emails.
 - Transaction initialization rejects malformed emails, CRLF email input, invalid currency codes, non-HTTPS callback URLs, and negative transaction charges.
+- Charge authorization rejects nil requests, non-positive amounts, missing or malformed emails (including CRLF injection), missing authorization codes, malformed currency codes, and negative transaction charges.
 - Payment request creation rejects nil requests, non-positive amounts, invalid line items, and negative quantities.
 - Payment request creation rejects malformed currency codes.
 - Refund creation rejects nil requests, empty transaction references, negative amounts, and malformed currency codes.

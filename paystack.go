@@ -230,15 +230,8 @@ func ValidateInitializeRequest(req *InitializeRequest) error {
 	if req.Amount <= 0 {
 		return fmt.Errorf("%w: amount must be greater than zero", ErrInvalidRequest)
 	}
-	if strings.TrimSpace(req.Email) == "" {
-		return fmt.Errorf("%w: email is required", ErrInvalidRequest)
-	}
-	if strings.ContainsAny(req.Email, "\r\n") {
-		return fmt.Errorf("%w: email contains a line break", ErrInvalidRequest)
-	}
-	parsed, err := netmail.ParseAddress(req.Email)
-	if err != nil || parsed.Address != req.Email {
-		return fmt.Errorf("%w: email is invalid", ErrInvalidRequest)
+	if err := validateEmail(req.Email); err != nil {
+		return err
 	}
 	if req.Currency != "" && !currencyPattern.MatchString(strings.ToUpper(req.Currency)) {
 		return fmt.Errorf("%w: currency must be a 3-letter code", ErrInvalidRequest)
@@ -251,6 +244,22 @@ func ValidateInitializeRequest(req *InitializeRequest) error {
 	}
 	if req.TransactionCharge < 0 {
 		return fmt.Errorf("%w: transaction charge cannot be negative", ErrInvalidRequest)
+	}
+	return nil
+}
+
+// validateEmail checks that email is present, free of header-injection line
+// breaks, and a syntactically valid single address (no display name).
+func validateEmail(email string) error {
+	if strings.TrimSpace(email) == "" {
+		return fmt.Errorf("%w: email is required", ErrInvalidRequest)
+	}
+	if strings.ContainsAny(email, "\r\n") {
+		return fmt.Errorf("%w: email contains a line break", ErrInvalidRequest)
+	}
+	parsed, err := netmail.ParseAddress(email)
+	if err != nil || parsed.Address != email {
+		return fmt.Errorf("%w: email is invalid", ErrInvalidRequest)
 	}
 	return nil
 }
