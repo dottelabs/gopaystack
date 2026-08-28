@@ -6,6 +6,43 @@ import (
 	"testing"
 )
 
+func TestAuthorizationDecodesReusableAndSignature(t *testing.T) {
+	// Trimmed from the Verify Transaction sample response in Paystack's docs.
+	const card = `{"authorization_code":"AUTH_uh8bcl3zbn","channel":"card","reusable":true,"signature":"SIG_yEXu7dLBeqG0kU7g95Ke"}`
+	var got Authorization
+	if err := json.Unmarshal([]byte(card), &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !got.Reusable {
+		t.Error("Reusable = false, want true")
+	}
+	if got.Signature != "SIG_yEXu7dLBeqG0kU7g95Ke" {
+		t.Errorf("Signature = %q, want SIG_yEXu7dLBeqG0kU7g95Ke", got.Signature)
+	}
+
+	// A mobile-money authorization that cannot be charged off-session.
+	const wallet = `{"authorization_code":"AUTH_wallet","channel":"mobile_money","reusable":false}`
+	var walletAuth Authorization
+	if err := json.Unmarshal([]byte(wallet), &walletAuth); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if walletAuth.Reusable {
+		t.Error("Reusable = true, want false")
+	}
+}
+
+// Reusable must not be dropped when an Authorization is re-marshaled, since a
+// false value is the signal that a method cannot be charged off-session.
+func TestAuthorizationMarshalKeepsFalseReusable(t *testing.T) {
+	b, err := json.Marshal(Authorization{AuthorizationCode: "AUTH_x", Reusable: false})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(b), `"reusable":false`) {
+		t.Errorf("Marshal() = %s, want it to retain \"reusable\":false", b)
+	}
+}
+
 func TestBuildAuthorizationDetails_card(t *testing.T) {
 	auth := Authorization{
 		Brand:       "visa",

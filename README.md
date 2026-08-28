@@ -19,8 +19,10 @@ import "github.com/calvin-kimani/gopaystack" // imported as package "paystack"
 ## Features
 
 - Initialize Paystack transactions.
+- Restrict Checkout payment channels, and initialize plan subscriptions with split codes.
 - Verify transactions by reference.
 - Charge saved (reusable) authorizations.
+- Check `Reusable` and dedupe by `Signature` before storing an authorization.
 - Verify webhook signatures using Paystack's HMAC-SHA512 signature.
 - Parse verified webhook payloads.
 - Create and fetch Paystack payment requests.
@@ -83,11 +85,55 @@ resp, err := client.InitializeTransaction(&paystack.InitializeRequest{
 
 `Amount` must be expressed in the smallest currency unit accepted by Paystack for the selected currency.
 
+#### Restricting payment channels
+
+`Channels` limits which payment methods Checkout offers. Leave it empty to offer
+every channel enabled on the integration. Valid values are `card`, `bank`,
+`apple_pay`, `ussd`, `qr`, `mobile_money`, `bank_transfer`, `eft`, `capitec_pay`
+and `payattitude`.
+
+```go
+// Card-only checkout.
+resp, err := client.InitializeTransaction(&paystack.InitializeRequest{
+    Amount:   250000,
+    Email:    "buyer@example.com",
+    Channels: []string{"card"},
+})
+```
+
+Paystack does not document which channels produce a reusable authorization, and
+the `channels` parameter says nothing about reusability. If you need a saved
+authorization, read `reusable` on the authorization object in the verify or
+webhook payload rather than inferring it from the channel. See
+[Recurring Charges](https://paystack.com/docs/payments/recurring-charges/),
+which documents recurring support for cards in all markets and direct debit for
+Nigerian businesses. Note that direct debit is not a `channels` value — it uses
+the separate Initialize Authorization endpoint.
+
+#### Subscriptions and splits
+
+Set `Plan` to a plan code to turn the transaction into a subscription. Paystack
+ignores `Amount` when a plan is attached, so it may be left at zero.
+`InvoiceLimit` caps how many times the customer is charged (zero means
+unlimited), and `SplitCode` attaches a transaction split.
+
+```go
+resp, err := client.InitializeTransaction(&paystack.InitializeRequest{
+    Email:        "buyer@example.com",
+    Plan:         "PLN_gx2wn530m0i3w3m",
+    InvoiceLimit: 12,
+    SplitCode:    "SPL_98WF13Eb3w",
+})
+```
+
 `ValidateInitializeRequest` checks:
 
 - request is not nil
-- amount is greater than zero
-- email is present
+- amount is not negative, and is greater than zero unless `Plan` is set
+- email is present and is a valid single address
+- currency, when set, is a 3-letter code
+- callback URL, when set, is absolute HTTPS
+- transaction charge and invoice limit are not negative
 
 ### Verify a Transaction
 
@@ -110,6 +156,34 @@ case paystack.TransactionStatusReversed:
 ```
 
 `VerifyTransaction` rejects empty references before making a network call.
+
+### Saving an Authorization
+
+Before storing an authorization for later off-session use, check
+`Reusable` on the authorization object. Paystack does not guarantee
+reusability by channel: card authorizations typically come back `true`, while
+mobile-money authorizations typically come back `false` even though the
+transaction itself succeeded. Treating a non-reusable authorization as saveable
+produces a payment method that looks valid but fails at charge time.
+
+```go
+tx, err := client.VerifyTransaction(reference)
+if err != nil {
+    return err
+}
+
+auth := tx.Data.Authorization
+if !auth.Reusable {
+    // Cannot be charged off-session. Do not store it as a saved method.
+    return errNotSaveable
+}
+
+// Signature is stable across charges of the same instrument, whereas
+// AuthorizationCode is reissued each time. Use it to avoid saving duplicates.
+if existing, ok := lookupBySignature(auth.Signature); ok {
+    return refresh(existing, auth)
+}
+```
 
 ### Charge an Authorization
 

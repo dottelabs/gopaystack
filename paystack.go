@@ -34,10 +34,22 @@ type Paystack struct {
 
 // InitializeRequest represents the payload to initialize a transaction
 type InitializeRequest struct {
-	Amount            int64  `json:"amount"` // in lowest denomination of Currency (e.g. cents for USD, kobo for NGN)
-	Email             string `json:"email"`
-	Currency          string `json:"currency,omitempty"` // NGN (default), USD, GHS, ZAR, KES
-	Reference         string `json:"reference,omitempty"`
+	Amount    int64  `json:"amount"` // in lowest denomination of Currency (e.g. cents for USD, kobo for NGN); ignored by Paystack when Plan is set
+	Email     string `json:"email"`
+	Currency  string `json:"currency,omitempty"` // NGN (default), USD, GHS, ZAR, KES
+	Reference string `json:"reference,omitempty"`
+	// Channels restricts which payment channels Checkout offers. Empty means
+	// every channel enabled on the integration. Valid values: card, bank,
+	// apple_pay, ussd, qr, mobile_money, bank_transfer, eft, capitec_pay,
+	// payattitude.
+	Channels []string `json:"channels,omitempty"`
+	// Plan is a plan code (e.g. PLN_xxx). Setting it turns the transaction
+	// into a subscription and makes Paystack ignore Amount.
+	Plan string `json:"plan,omitempty"`
+	// InvoiceLimit caps how many times the customer is charged on the
+	// subscription. Only meaningful alongside Plan. Zero means unlimited.
+	InvoiceLimit      int    `json:"invoice_limit,omitempty"`
+	SplitCode         string `json:"split_code,omitempty"` // transaction split code, e.g. SPL_98WF13Eb3w
 	CallbackURL       string `json:"callback_url,omitempty"`
 	Subaccount        string `json:"subaccount,omitempty"`
 	TransactionCharge int64  `json:"transaction_charge,omitempty"`
@@ -62,19 +74,29 @@ type InitializeResponse struct {
 // All fields are optional — Paystack returns null/empty for non-applicable
 // keys depending on the channel.
 type Authorization struct {
-	AuthorizationCode string             `json:"authorization_code,omitempty"`
-	Bin               string             `json:"bin,omitempty"`
-	Last4             string             `json:"last4,omitempty"`
-	ExpMonth          string             `json:"exp_month,omitempty"`
-	ExpYear           string             `json:"exp_year,omitempty"`
-	Channel           string             `json:"channel,omitempty"`
-	CardType          string             `json:"card_type,omitempty"`
-	Bank              string             `json:"bank,omitempty"`
-	CountryCode       string             `json:"country_code,omitempty"`
-	Brand             string             `json:"brand,omitempty"`
-	AccountName       string             `json:"account_name,omitempty"`
-	Reusable          bool               `json:"reusable,omitempty"`
-	MobileMoney       *MobileMoneyDetail `json:"mobile_money,omitempty"`
+	AuthorizationCode string `json:"authorization_code,omitempty"`
+	Bin               string `json:"bin,omitempty"`
+	Last4             string `json:"last4,omitempty"`
+	ExpMonth          string `json:"exp_month,omitempty"`
+	ExpYear           string `json:"exp_year,omitempty"`
+	Channel           string `json:"channel,omitempty"`
+	CardType          string `json:"card_type,omitempty"`
+	Bank              string `json:"bank,omitempty"`
+	CountryCode       string `json:"country_code,omitempty"`
+	Brand             string `json:"brand,omitempty"`
+	AccountName       string `json:"account_name,omitempty"`
+	// Reusable reports whether this authorization can be charged off-session
+	// via ChargeAuthorization. Paystack does not guarantee this per channel —
+	// card authorizations typically come back true and mobile money typically
+	// false — so always check this field rather than inferring from Channel.
+	// Deliberately has no omitempty: false is meaningful and must survive
+	// re-marshaling.
+	Reusable bool `json:"reusable"`
+	// Signature is a stable per-instrument identifier. Paystack issues a fresh
+	// AuthorizationCode every time the same card is used, but Signature stays
+	// the same, so it is the correct key for deduplicating saved instruments.
+	Signature   string             `json:"signature,omitempty"`
+	MobileMoney *MobileMoneyDetail `json:"mobile_money,omitempty"`
 }
 
 // MobileMoneyDetail is the mobile_money sub-object on an Authorization.
@@ -227,8 +249,16 @@ func ValidateInitializeRequest(req *InitializeRequest) error {
 	if req == nil {
 		return fmt.Errorf("%w: initialize request is required", ErrInvalidRequest)
 	}
-	if req.Amount <= 0 {
+	// A plan code makes Paystack ignore amount, so only require a positive
+	// amount when no plan is attached. A negative amount is always invalid.
+	if req.Amount < 0 {
+		return fmt.Errorf("%w: amount cannot be negative", ErrInvalidRequest)
+	}
+	if req.Amount == 0 && strings.TrimSpace(req.Plan) == "" {
 		return fmt.Errorf("%w: amount must be greater than zero", ErrInvalidRequest)
+	}
+	if req.InvoiceLimit < 0 {
+		return fmt.Errorf("%w: invoice limit cannot be negative", ErrInvalidRequest)
 	}
 	if err := validateEmail(req.Email); err != nil {
 		return err
