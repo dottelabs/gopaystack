@@ -38,6 +38,51 @@ func TestValidateRefundRequest(t *testing.T) {
 	}
 }
 
+// Paystack has been observed returning fully_deducted as a number (0/1) on the
+// create/fetch endpoints, where this type previously required a bool and failed
+// to decode a perfectly valid response.
+func TestRefundNumericFullyDeducted(t *testing.T) {
+	cases := map[string]struct {
+		raw  string
+		want bool
+	}{
+		"number one":  {raw: `1`, want: true},
+		"number zero": {raw: `0`, want: false},
+		"null":        {raw: `null`, want: false},
+		"bool true":   {raw: `true`, want: true},
+		"bool false":  {raw: `false`, want: false},
+	}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			body := `{"status":true,"message":"Refund retrieved","data":{"id":1,"amount":500000,"currency":"KES","status":"processed","fully_deducted":` + tt.raw + `}}`
+			withPaystackHTTPClient(t, paystackRoundTripper(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Header:     make(http.Header),
+				}, nil
+			}))
+
+			resp, err := NewClient("secret").GetRefund("1")
+			if err != nil {
+				t.Fatalf("GetRefund() error = %v", err)
+			}
+			if got := bool(resp.Data.FullyDeducted); got != tt.want {
+				t.Errorf("Data.FullyDeducted = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFlexibleBoolRejectsUnsupportedJSON(t *testing.T) {
+	for _, raw := range []string{`"yes"`, `{}`, `[]`} {
+		var b FlexibleBool
+		if err := json.Unmarshal([]byte(raw), &b); err == nil {
+			t.Errorf("Unmarshal(%s) error = nil, want error", raw)
+		}
+	}
+}
+
 func TestRefundResponseDecoding(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		const body = `{"status":true,"message":"Refund has been queued for processing","data":{"transaction":{"id":1004723697,"reference":"T685312322670591","amount":10000,"currency":"NGN"},"integration":412829,"deducted_amount":0,"channel":null,"merchant_note":"note","customer_note":"note","status":"pending","refunded_by":"test@me.com","expected_at":"2021-12-16T09:21:17.016Z","currency":"NGN","domain":"live","amount":10000,"fully_deducted":false,"id":3018284,"createdAt":"2021-12-07T09:21:17.122Z","updatedAt":"2021-12-07T09:21:17.122Z"}}`

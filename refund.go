@@ -18,12 +18,44 @@ type RefundRequest struct {
 	MerchantNote string `json:"merchant_note,omitempty"`
 }
 
+// FlexibleBool decodes the inconsistent encodings Paystack uses for
+// boolean-ish fields. Depending on the endpoint and the record, a field such as
+// `fully_deducted` arrives as a JSON bool, as a 0/1 number, or as null; a plain
+// bool field fails to decode the numeric form.
+type FlexibleBool bool
+
+// UnmarshalJSON accepts a JSON bool, a number (zero is false), or null.
+func (b *FlexibleBool) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	switch trimmed {
+	case "", "null", "false":
+		*b = false
+		return nil
+	case "true":
+		*b = true
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return fmt.Errorf("expected a boolean or a number, got %s", trimmed)
+	}
+	value, err := number.Float64()
+	if err != nil {
+		return fmt.Errorf("invalid number %s: %w", trimmed, err)
+	}
+	*b = value != 0
+	return nil
+}
+
 // RefundResponse represents the response from refund operations.
 //
 // The Transaction field is polymorphic: Paystack returns a full transaction
 // object when a refund is created, but a bare integer transaction ID when a
 // refund is fetched. It is kept as json.RawMessage so both shapes decode
 // without error; callers unmarshal it into the appropriate type.
+//
+// FullyDeducted is a FlexibleBool: Paystack has been observed returning it as
+// both a bool and a number in this same payload shape.
 type RefundResponse struct {
 	Status  bool   `json:"status"`
 	Message string `json:"message"`
@@ -36,7 +68,7 @@ type RefundResponse struct {
 		DeductedAmount int64           `json:"deducted_amount"`
 		Currency       string          `json:"currency"`
 		Channel        string          `json:"channel"`
-		FullyDeducted  bool            `json:"fully_deducted"`
+		FullyDeducted  FlexibleBool    `json:"fully_deducted"`
 		Status         string          `json:"status"`
 		RefundedBy     string          `json:"refunded_by"`
 		RefundedAt     string          `json:"refunded_at"`
