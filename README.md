@@ -2,18 +2,18 @@
 
 Go client and helpers for Paystack payments.
 
-`github.com/calvin-kimani/gopaystack` provides a small, typed wrapper around the Paystack API surface commonly needed by payment applications: transaction initialization, transaction verification, payment requests, refunds, splits, subaccounts, webhook verification, webhook parsing, and payment authorization detail extraction.
+`github.com/dottelabs/gopaystack` provides a small, typed wrapper around the Paystack API surface commonly needed by payment applications: transaction initialization, transaction verification, payment requests, refunds, splits, subaccounts, webhook verification, webhook parsing, and payment authorization detail extraction.
 
 Application concepts such as users, invoices, coupons, database transactions, order fulfillment, and business-specific payment policy belong in the application using this module.
 
 ## Installation
 
 ```sh
-go get github.com/calvin-kimani/gopaystack
+go get github.com/dottelabs/gopaystack
 ```
 
 ```go
-import "github.com/calvin-kimani/gopaystack" // imported as package "paystack"
+import "github.com/dottelabs/gopaystack" // imported as package "paystack"
 ```
 
 ## Features
